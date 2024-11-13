@@ -18,8 +18,7 @@ using namespace boost;
 #include "sync.h"
 #include "util.h"
 
-bool CheckSig(vector<unsigned char> vchSig, const vector<unsigned char> &vchPubKey, const CScript &scriptCode,
-              const CTransaction& txTo, unsigned int nIn, int nHashType, int flags);
+bool CheckSig(vector<unsigned char> vchSig, vector<unsigned char> vchPubKey, CScript scriptCode, const CTransaction& txTo, unsigned int nIn, int nHashType);
 
 static const valtype vchFalse(0);
 static const valtype vchZero(0);
@@ -106,7 +105,6 @@ const char* GetTxnOutputType(txnouttype t)
     case TX_SCRIPTHASH: return "scripthash";
     case TX_MULTISIG: return "multisig";
     case TX_NULL_DATA: return "nulldata";
-    case TX_PUBKEY_DROP: return "pubkeydrop";
     }
     return NULL;
 }
@@ -151,8 +149,6 @@ const char* GetOpName(opcodetype opcode)
     case OP_ENDIF                  : return "OP_ENDIF";
     case OP_VERIFY                 : return "OP_VERIFY";
     case OP_RETURN                 : return "OP_RETURN";
-    case OP_CHECKLOCKTIMEVERIFY    : return "OP_CHECKLOCKTIMEVERIFY";
-    case OP_CHECKSEQUENCEVERIFY    : return "OP_CHECKSEQUENCEVERIFY";
 
     // stack ops
     case OP_TOALTSTACK             : return "OP_TOALTSTACK";
@@ -235,8 +231,8 @@ const char* GetOpName(opcodetype opcode)
 
     // expanson
     case OP_NOP1                   : return "OP_NOP1";
-    //case OP_NOP2                   : return "OP_NOP2";
-    //case OP_NOP3                   : return "OP_NOP3";
+    case OP_NOP2                   : return "OP_NOP2";
+    case OP_NOP3                   : return "OP_NOP3";
     case OP_NOP4                   : return "OP_NOP4";
     case OP_NOP5                   : return "OP_NOP5";
     case OP_NOP6                   : return "OP_NOP6";
@@ -325,84 +321,7 @@ static bool IsCanonicalSignature(const valtype &vchSig) {
     return true;
 }
 
-
-bool CheckLockTime(const int64_t& nLockTime, const CTransaction &txTo, unsigned int nIn)
-{
-    // There are two kinds of nLockTime: lock-by-blockheight
-    // and lock-by-blocktime, distinguished by whether
-    // nLockTime < LOCKTIME_THRESHOLD.
-    //
-    // We want to compare apples to apples, so fail the script
-    // unless the type of nLockTime being tested is the same as
-    // the nLockTime in the transaction.
-    if (!((txTo.nLockTime <  LOCKTIME_THRESHOLD && nLockTime <  LOCKTIME_THRESHOLD) ||
-          (txTo.nLockTime >= LOCKTIME_THRESHOLD && nLockTime >= LOCKTIME_THRESHOLD)))
-    {
-        return false;
-    }
-
-    // Now that we know we're comparing apples-to-apples, the
-    // comparison is a simple numeric one.
-    if (nLockTime > (int64_t)txTo.nLockTime)
-        return false;
-
-    // Finally the nLockTime feature can be disabled and thus
-    // CHECKLOCKTIMEVERIFY bypassed if every txin has been
-    // finalized by setting nSequence to maxint. The
-    // transaction would be allowed into the blockchain, making
-    // the opcode ineffective.
-    //
-    // Testing if this vin is not final is sufficient to
-    // prevent this condition. Alternatively we could test all
-    // inputs, but testing just this input minimizes the data
-    // required to prove correct CHECKLOCKTIMEVERIFY execution.
-    if (SEQUENCE_FINAL == txTo.vin[nIn].nSequence)
-        return false;
-
-    return true;
-}
-
-bool CheckSequence(const int64_t& nSequence, const CTransaction &txTo, unsigned int nIn)
-{
-    // Relative lock times are supported by comparing the passed
-    // in operand to the sequence number of the input.
-    const int64_t txToSequence = (int64_t)txTo.vin[nIn].nSequence;
-
-    // Sequence numbers with their most significant bit set are not
-    // consensus constrained. Testing that the transaction's sequence
-    // number do not have this bit set prevents using this property
-    // to get around a CHECKSEQUENCEVERIFY check.
-    if (txToSequence & SEQUENCE_LOCKTIME_DISABLE_FLAG)
-        return false;
-
-    // Mask off any bits that do not have consensus-enforced meaning
-    // before doing the integer comparisons
-    const uint32_t nLockTimeMask = SEQUENCE_LOCKTIME_TYPE_FLAG | SEQUENCE_LOCKTIME_MASK;
-    const int64_t txToSequenceMasked = txToSequence & nLockTimeMask;
-    const int64_t nSequenceMasked = nSequence & nLockTimeMask;
-
-    // There are two kinds of nSequence: lock-by-blockheight
-    // and lock-by-blocktime, distinguished by whether
-    // nSequenceMasked < CTxIn::SEQUENCE_LOCKTIME_TYPE_FLAG.
-    //
-    // We want to compare apples to apples, so fail the script
-    // unless the type of nSequenceMasked being tested is the same as
-    // the nSequenceMasked in the transaction.
-    if (!((txToSequenceMasked <  SEQUENCE_LOCKTIME_TYPE_FLAG && nSequenceMasked <  SEQUENCE_LOCKTIME_TYPE_FLAG) ||
-          (txToSequenceMasked >= SEQUENCE_LOCKTIME_TYPE_FLAG && nSequenceMasked >= SEQUENCE_LOCKTIME_TYPE_FLAG)))
-    {
-        return false;
-    }
-
-    // Now that we know we're comparing apples-to-apples, the
-    // comparison is a simple numeric one.
-    if (nSequenceMasked > txToSequenceMasked)
-        return false;
-
-    return true;
-}
-
-bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, const CTransaction& txTo, unsigned int nIn, unsigned int flags, int nHashType)
+bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, const CTransaction& txTo, unsigned int nIn, int nHashType)
 {
     CAutoBN_CTX pctx;
     CScript::const_iterator pc = script.begin();
@@ -486,7 +405,7 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, co
                 // Control
                 //
                 case OP_NOP:
-                case OP_NOP1: case OP_NOP4: case OP_NOP5:
+                case OP_NOP1: case OP_NOP2: case OP_NOP3: case OP_NOP4: case OP_NOP5:
                 case OP_NOP6: case OP_NOP7: case OP_NOP8: case OP_NOP9: case OP_NOP10:
                 break;
 
@@ -544,68 +463,6 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, co
                     return false;
                 }
                 break;
-
-                case OP_CHECKLOCKTIMEVERIFY:
-                {
-                    // CHECKLOCKTIMEVERIFY
-                    //
-                    // (nLockTime -- nLockTime)
-                    if (!(flags & SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY)) {
-                        // treat as a NOP2 if not enabled
-                        break;
-                    }
-
-                    if (stack.size() < 1)
-                        return false;
-
-                    CBigNum nLockTime = CastToBigNum(stacktop(-1));
-
-                    // In the rare event that the argument may be < 0 due to
-                    // some arithmetic being done first, you can always use
-                    // 0 MAX CHECKLOCKTIMEVERIFY.
-                    if (nLockTime < 0)
-                        return false;
-
-                    // Actually compare the specified lock time with the transaction.
-                    if (!CheckLockTime(nLockTime.getuint64(), txTo, nIn))
-                        return false;
-
-                    break;
-                }
-
-                case OP_CHECKSEQUENCEVERIFY:
-                {
-                    if (!(flags & SCRIPT_VERIFY_CHECKSEQUENCEVERIFY)) {
-                        // treat as a NOP3 not enabled
-                        break;
-                    }
-
-                    if (stack.size() < 1)
-                        return false;
-
-                    // nSequence, like nLockTime, is a 32-bit unsigned integer
-                    // field. See the comment in CHECKLOCKTIMEVERIFY regarding
-                    // 5-byte numeric operands.
-                    CBigNum nSequence = CastToBigNum(stacktop(-1));
-
-                    // In the rare event that the argument may be < 0 due to
-                    // some arithmetic being done first, you can always use
-                    // 0 MAX CHECKSEQUENCEVERIFY.
-                    if (nSequence < 0)
-                        return false;
-
-                    // To provide for future soft-fork extensibility, if the
-                    // operand has the disabled lock-time flag set,
-                    // CHECKSEQUENCEVERIFY behaves as a NOP.
-                    if ((nSequence.getint32() & SEQUENCE_LOCKTIME_DISABLE_FLAG) != 0)
-                        return false;
-
-                    // Compare the specified sequence number with the input.
-                    if (!CheckSequence(nSequence.getuint64(), txTo, nIn))
-                        return false;
-
-                    break;
-                }
 
 
                 //
@@ -1150,7 +1007,7 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, co
                     scriptCode.FindAndDelete(CScript(vchSig));
 
                     bool fSuccess = IsCanonicalSignature(vchSig) && IsCanonicalPubKey(vchPubKey) &&
-                        CheckSig(vchSig, vchPubKey, scriptCode, txTo, nIn, nHashType, flags);
+                        CheckSig(vchSig, vchPubKey, scriptCode, txTo, nIn, nHashType);
 
                     popstack(stack);
                     popstack(stack);
@@ -1211,7 +1068,7 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, co
 
                         // Check signature
                         bool fOk = IsCanonicalSignature(vchSig) && IsCanonicalPubKey(vchPubKey) &&
-                            CheckSig(vchSig, vchPubKey, scriptCode, txTo, nIn, nHashType, flags);
+                            CheckSig(vchSig, vchPubKey, scriptCode, txTo, nIn, nHashType);
 
                         if (fOk)
                         {
@@ -1389,8 +1246,8 @@ public:
     }
 };
 
-bool CheckSig(vector<unsigned char> vchSig, const vector<unsigned char> &vchPubKey, const CScript &scriptCode,
-              const CTransaction& txTo, unsigned int nIn, int nHashType, int flags)
+bool CheckSig(vector<unsigned char> vchSig, vector<unsigned char> vchPubKey, CScript scriptCode,
+              const CTransaction& txTo, unsigned int nIn, int nHashType)
 {
     static CSignatureCache signatureCache;
 
@@ -1449,8 +1306,6 @@ bool Solver(const CScript& scriptPubKey, txnouttype& typeRet, vector<vector<unsi
         mTemplates.insert(make_pair(TX_NULL_DATA, CScript() << OP_RETURN));
     }
 
-    vSolutionsRet.clear();
-
     // Shortcut for pay-to-script-hash, which are more constrained than the other types:
     // it is always OP_HASH160 20 [20 byte hash] OP_EQUAL
     if (scriptPubKey.IsPayToScriptHash())
@@ -1460,17 +1315,6 @@ bool Solver(const CScript& scriptPubKey, txnouttype& typeRet, vector<vector<unsi
         vSolutionsRet.push_back(hashBytes);
         return true;
     }
-
-    // Provably prunable, data-carrying output
-    //
-    // So long as script passes the IsUnspendable() test and all but the first
-    // byte passes the IsPushOnly() test we don't care what exactly is in the
-    // script.
-    if (scriptPubKey.size() >= 1 && scriptPubKey[0] == OP_RETURN && scriptPubKey.IsPushOnly()) {
-        typeRet = TX_NULL_DATA;
-        return true;
-    }
-
 
     // Scan templates
     const CScript& script1 = scriptPubKey;
@@ -1544,20 +1388,6 @@ bool Solver(const CScript& scriptPubKey, txnouttype& typeRet, vector<vector<unsi
                 else
                     break;
             }
-            else if (opcode2 == OP_INTEGER)
-            {   // Up to four-byte integer pushed onto vSolutions
-                try
-                {
-                    CBigNum bnVal = CastToBigNum(vch1);
-                    if (bnVal <= 16)
-                        break; // It's better to use OP_0 ... OP_16 for small integers.
-                    vSolutionsRet.push_back(vch1);
-                }
-                catch(...)
-                {
-                    break;
-                }
-            }
             else if (opcode1 != opcode2 || vch1 != vch2)
             {
                 // Others must match exactly
@@ -1625,12 +1455,6 @@ bool Solver(const CKeyStore& keystore, const CScript& scriptPubKey, uint256 hash
     case TX_PUBKEY:
         keyID = CPubKey(vSolutions[0]).GetID();
         return Sign1(keyID, keystore, hash, nHashType, scriptSigRet);
-//    case TX_PUBKEY_DROP:
-//        {
-//            CPubKey key = CPubKey(vSolutions[0]);
-//            CPubKey R = CPubKey(vSolutions[1]);
-//            return SignR(key, R, keystore, hash, nHashType, scriptSigRet);
-//        }
     case TX_PUBKEYHASH:
         keyID = CKeyID(uint160(vSolutions[0]));
         if (!Sign1(keyID, keystore, hash, nHashType, scriptSigRet))
@@ -1660,7 +1484,6 @@ int ScriptSigArgsExpected(txnouttype t, const std::vector<std::vector<unsigned c
     case TX_NULL_DATA:
         return -1;
     case TX_PUBKEY:
-    case TX_PUBKEY_DROP:
         return 1;
     case TX_PUBKEYHASH:
         return 2;
@@ -1740,8 +1563,6 @@ bool IsMine(const CKeyStore &keystore, const CScript& scriptPubKey)
     case TX_PUBKEY:
         keyID = CPubKey(vSolutions[0]).GetID();
         return keystore.HaveKey(keyID);
-    case TX_PUBKEY_DROP:
-        break;
     case TX_PUBKEYHASH:
         keyID = CKeyID(uint160(vSolutions[0]));
         return keystore.HaveKey(keyID);
@@ -1862,15 +1683,16 @@ bool ExtractDestinations(const CScript& scriptPubKey, txnouttype& typeRet, vecto
     return true;
 }
 
-bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const CTransaction& txTo, unsigned int nIn, unsigned int flags, int nHashType)
+bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const CTransaction& txTo, unsigned int nIn,
+                  int nHashType)
 {
     vector<vector<unsigned char> > stack, stackCopy;
-    if (!EvalScript(stack, scriptSig, txTo, nIn, flags, nHashType))
+    if (!EvalScript(stack, scriptSig, txTo, nIn, nHashType))
         return false;
 
     stackCopy = stack;
 
-    if (!EvalScript(stack, scriptPubKey, txTo, nIn, flags, nHashType))
+    if (!EvalScript(stack, scriptPubKey, txTo, nIn, nHashType))
         return false;
 
     if (stack.empty())
@@ -1889,7 +1711,7 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
         CScript pubKey2(pubKeySerialized.begin(), pubKeySerialized.end());
         popstack(stackCopy);
 
-        if (!EvalScript(stackCopy, pubKey2, txTo, nIn, flags, nHashType))
+        if (!EvalScript(stackCopy, pubKey2, txTo, nIn, nHashType))
             return false;
         if (stackCopy.empty())
             return false;
@@ -1932,7 +1754,7 @@ bool SignSignature(const CKeyStore &keystore, const CScript& fromPubKey, CTransa
     }
 
     // Test solution
-    return VerifyScript(txin.scriptSig, fromPubKey, txTo, nIn, STRICT_FLAGS, 0);
+    return VerifyScript(txin.scriptSig, fromPubKey, txTo, nIn, 0);
 }
 
 bool SignSignature(const CKeyStore &keystore, const CTransaction& txFrom, CTransaction& txTo, unsigned int nIn, int nHashType)
@@ -1946,7 +1768,7 @@ bool SignSignature(const CKeyStore &keystore, const CTransaction& txFrom, CTrans
     return SignSignature(keystore, txout.scriptPubKey, txTo, nIn, nHashType);
 }
 
-bool VerifySignature(const CTransaction& txFrom, const CTransaction& txTo, unsigned int nIn, unsigned int flags, int nHashType)
+bool VerifySignature(const CTransaction& txFrom, const CTransaction& txTo, unsigned int nIn, int nHashType)
 {
     assert(nIn < txTo.vin.size());
     const CTxIn& txin = txTo.vin[nIn];
@@ -1957,7 +1779,7 @@ bool VerifySignature(const CTransaction& txFrom, const CTransaction& txTo, unsig
     if (txin.prevout.hash != txFrom.GetHash())
         return false;
 
-    return VerifyScript(txin.scriptSig, txout.scriptPubKey, txTo, nIn, flags, nHashType);
+    return VerifyScript(txin.scriptSig, txout.scriptPubKey, txTo, nIn, nHashType);
 }
 
 static CScript PushAll(const vector<valtype>& values)
@@ -1998,7 +1820,7 @@ static CScript CombineMultisig(CScript scriptPubKey, const CTransaction& txTo, u
             if (sigs.count(pubkey))
                 continue; // Already got a sig for this pubkey
 
-            if (CheckSig(sig, pubkey, scriptPubKey, txTo, nIn, 0, 0))
+            if (CheckSig(sig, pubkey, scriptPubKey, txTo, nIn, 0))
             {
                 sigs[pubkey] = sig;
                 break;
@@ -2036,7 +1858,6 @@ static CScript CombineSignatures(CScript scriptPubKey, const CTransaction& txTo,
             return PushAll(sigs1);
         return PushAll(sigs2);
     case TX_PUBKEY:
-    case TX_PUBKEY_DROP:
     case TX_PUBKEYHASH:
         // Signatures are bigger than placeholders or empty scripts:
         if (sigs1.empty() || sigs1[0].empty())
@@ -2077,9 +1898,9 @@ CScript CombineSignatures(CScript scriptPubKey, const CTransaction& txTo, unsign
     Solver(scriptPubKey, txType, vSolutions);
 
     vector<valtype> stack1;
-    EvalScript(stack1, scriptSig1, CTransaction(), 0, SCRIPT_VERIFY_STRICTENC, 0);
+    EvalScript(stack1, scriptSig1, CTransaction(), 0, 0);
     vector<valtype> stack2;
-    EvalScript(stack2, scriptSig2, CTransaction(), 0, SCRIPT_VERIFY_STRICTENC, 0);
+    EvalScript(stack2, scriptSig2, CTransaction(), 0, 0);
 
     return CombineSignatures(scriptPubKey, txTo, nIn, txType, vSolutions, stack1, stack2);
 }

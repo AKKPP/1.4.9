@@ -134,7 +134,6 @@ TransactionView::TransactionView(QWidget *parent) :
     QAction *copyTxIDAction = new QAction(tr("Copy transaction ID"), this);
     QAction *editLabelAction = new QAction(tr("Edit label"), this);
     QAction *showDetailsAction = new QAction(tr("Show transaction details"), this);
-    abandonAction = new QAction(tr("Abandon transaction"), this);
 
     contextMenu = new QMenu();
     contextMenu->addAction(copyAddressAction);
@@ -143,7 +142,6 @@ TransactionView::TransactionView(QWidget *parent) :
     contextMenu->addAction(copyTxIDAction);
     contextMenu->addAction(editLabelAction);
     contextMenu->addAction(showDetailsAction);
-    //contextMenu->addAction(abandonAction);
 
     // Connect actions
     connect(dateWidget, SIGNAL(activated(int)), this, SLOT(chooseDate(int)));
@@ -160,7 +158,6 @@ TransactionView::TransactionView(QWidget *parent) :
     connect(copyTxIDAction, SIGNAL(triggered()), this, SLOT(copyTxID()));
     connect(editLabelAction, SIGNAL(triggered()), this, SLOT(editLabel()));
     connect(showDetailsAction, SIGNAL(triggered()), this, SLOT(showDetails()));
-    connect(abandonAction, SIGNAL(triggered()), this, SLOT(abandonSelectedTransaction()));
 }
 
 void TransactionView::setModel(WalletModel *model)
@@ -448,27 +445,4 @@ void TransactionView::focusTransaction(const QModelIndex &idx)
     transactionView->scrollTo(targetIdx);
     transactionView->setCurrentIndex(targetIdx);
     transactionView->setFocus();
-}
-
-void TransactionView::abandonSelectedTransaction()
-{
-    if(!transactionView->selectionModel() ||!model)
-        return;
-
-    QModelIndexList selection = transactionView->selectionModel()->selectedRows();
-    if(!selection.isEmpty())
-    {
-        QString strTxid = selection.at(0).data(TransactionTableModel::TxIDRole).toString();
-
-        int dashPos = strTxid.indexOf('-');
-        if (dashPos != -1)
-            strTxid = strTxid.left(dashPos);
-
-        if(strTxid.isEmpty())
-            return;
-
-        uint256 txid(strTxid.toStdString());
-
-        model->abandonTransaction(txid);
-    }
 }

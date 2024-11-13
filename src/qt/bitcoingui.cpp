@@ -28,7 +28,6 @@
 #include "wallet.h"
 #include "chatwidget.h"
 #include "burncoinsdialog.h"
-#include "sendtimelockdialog.h"
 
 #ifdef Q_OS_MAC
 #include "macdockiconhandler.h"
@@ -387,10 +386,6 @@ void BitcoinGUI::createActions()
     chessResetAction->setToolTip(tr("Reset engine configuration"));
     chessResetAction->setIconVisibleInMenu(true);
 
-    sendTimelockAction = new QAction(QIcon(":/icons/send"), tr("&Send with timelock..."), this);
-    sendTimelockAction->setToolTip(tr("Send coins by timelock with block height or timestamp"));
-    sendTimelockAction->setIconVisibleInMenu(true);
-
     connect(quitAction, SIGNAL(triggered()), qApp, SLOT(quit()));
     connect(aboutAction, SIGNAL(triggered()), this, SLOT(aboutClicked()));
     connect(aboutQtAction, SIGNAL(triggered()), qApp, SLOT(aboutQt()));
@@ -405,7 +400,6 @@ void BitcoinGUI::createActions()
     connect(verifyMessageAction, SIGNAL(triggered()), this, SLOT(gotoVerifyMessageTab()));
     connect(chessPlayAction, SIGNAL(triggered()), this, SLOT(onPlayChess()));
     connect(chessResetAction, SIGNAL(triggered()), this, SLOT(onResetChessEngineJson()));
-    connect(sendTimelockAction, SIGNAL(triggered()), this, SLOT(showSendTimelockDialog()));
 }
 
 void BitcoinGUI::createMenuBar()
@@ -435,7 +429,6 @@ void BitcoinGUI::createMenuBar()
     settings->addAction(optionsAction);
 
     QMenu *tools = appMenuBar->addMenu(tr("&Tools"));
-    tools->addAction(sendTimelockAction);
     tools->addAction(burnCoinsAction);
     tools->addSeparator();
     tools->addAction(signMessageAction);
@@ -1276,12 +1269,4 @@ void BitcoinGUI::gotoBurnCoinsPage()
 {
     burnCoinsPage->show();
     burnCoinsPage->setFocus();
-}
-
-void BitcoinGUI::showSendTimelockDialog()
-{
-    sendtimelockdialog dlg(nullptr);
-    dlg.setModels(walletModel, clientModel);
-    dlg.exec();
-
 }

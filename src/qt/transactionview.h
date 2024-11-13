@@ -50,7 +50,6 @@ private:
     QLineEdit *amountWidget;
 
     QMenu *contextMenu;
-    QAction* abandonAction;
 
     QFrame *dateRangeWidget;
     QDateTimeEdit *dateFrom;
@@ -67,7 +66,6 @@ private slots:
     void copyLabel();
     void copyAmount();
     void copyTxID();
-    void abandonSelectedTransaction();
 
 signals:
     void doubleClicked(const QModelIndex&);

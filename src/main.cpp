@@ -325,13 +325,9 @@ bool IsStandardTx(const CTransaction& tx)
     // Timestamps on the other hand don't get any special treatment, because we
     // can't know what timestamp the next block will have, and there aren't
     // timestamp applications where it matters.
-
-    // 20241026 commented for timelock
-    //if (!IsFinalTx(tx, nBestHeight + 1)) {
-    //    qDebug() << "!IsFinalTx" << nBestHeight + 1;
-    //    return false;
-    //}
-
+    if (!IsFinalTx(tx, nBestHeight + 1)) {
+        return false;
+    }
     // nTime has different purpose from nLockTime but can be used in similar attacks
     if (tx.nTime > FutureDrift(GetAdjustedTime())) {
         return false;
@@ -447,7 +443,7 @@ bool CTransaction::AreInputsStandard(const MapPrevTx& mapInputs) const
         // IsStandard() call returns false
         vector<vector<unsigned char> > stack;        
 
-        if (!EvalScript(stack, vin[i].scriptSig, *this, i, false, 0))
+        if (!EvalScript(stack, vin[i].scriptSig, *this, i, 0))
             return false;
 
         if (whichType == TX_SCRIPTHASH)
@@ -631,10 +627,6 @@ bool AcceptToMemoryPool(CTxMemPool& pool, CTransaction &tx, bool* pfMissingInput
     if (pfMissingInputs)
         *pfMissingInputs = false;
 
-    // Time (prevent mempool memory exhaustion attack)
-    if (tx.nTime > FutureDrift(GetAdjustedTime()))
-        return tx.DoS(10, error("AcceptToMemoryPool : transaction timestamp is too far in the future"));
-
     if (!tx.CheckTransaction())
         return error("AcceptToMemoryPool : CheckTransaction failed");
 
@@ -753,7 +745,7 @@ bool AcceptToMemoryPool(CTxMemPool& pool, CTransaction &tx, bool* pfMissingInput
 
         // Check against previous transactions
         // This is done last to help prevent CPU exhaustion denial-of-service attacks.
-        if (!tx.ConnectInputs(txdb, mapInputs, mapUnused, CDiskTxPos(1,1,1), pindexBest, false, false, STRICT_FLAGS))
+        if (!tx.ConnectInputs(txdb, mapInputs, mapUnused, CDiskTxPos(1,1,1), pindexBest, false, false))
         {
             return error("AcceptToMemoryPool : ConnectInputs failed %s", hash.ToString().substr(0,10).c_str());
         }
@@ -1424,7 +1416,7 @@ unsigned int CTransaction::GetP2SHSigOpCount(const MapPrevTx& inputs) const
 }
 
 bool CTransaction::ConnectInputs(CTxDB& txdb, MapPrevTx inputs, map<uint256, CTxIndex>& mapTestPool, const CDiskTxPos& posThisTx,
-    const CBlockIndex* pindexBlock, bool fBlock, bool fMiner, unsigned int flags)
+    const CBlockIndex* pindexBlock, bool fBlock, bool fMiner)
 {
     // Take over previous transactions' spent pointers
     // fBlock is true when this is called from AcceptBlock when a new best-block is added to the blockchain
@@ -1481,7 +1473,7 @@ bool CTransaction::ConnectInputs(CTxDB& txdb, MapPrevTx inputs, map<uint256, CTx
             if (!(fBlock && (nBestHeight < Checkpoints::GetTotalBlocksEstimate())))
             {
                 // Verify signature
-                if (!VerifySignature(txPrev, *this, i, flags, 0))
+                if (!VerifySignature(txPrev, *this, i, 0))
                 {
                     return DoS(100,error("ConnectInputs() : %s VerifySignature failed", GetHash().ToString().substr(0,10).c_str()));
                 }
@@ -1624,17 +1616,7 @@ bool CBlock::ConnectBlock(CTxDB& txdb, CBlockIndex* pindex, bool fJustCheck)
             if (tx.IsCoinStake())
                 nStakeReward = nTxValueOut - nTxValueIn;
 
-            unsigned int nFlags = SCRIPT_VERIFY_NOCACHE | SCRIPT_VERIFY_P2SH;
-
-            if (tx.nTime >= CHECKLOCKTIMEVERIFY_SWITCH_TIME) {
-                nFlags |= SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY;
-            }
-
-            if (tx.nTime >= CHECKSEQUENCEVERIFY_SWITCH_TIME) {
-                nFlags |= SCRIPT_VERIFY_CHECKSEQUENCEVERIFY;
-            }
-
-            if (!tx.ConnectInputs(txdb, mapInputs, mapQueuedChanges, posThisTx, pindex, true, false, nFlags))
+            if (!tx.ConnectInputs(txdb, mapInputs, mapQueuedChanges, posThisTx, pindex, true, false))
                 return false;
         }
 

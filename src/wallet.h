@@ -163,7 +163,6 @@ public:
 
     void GetKeyBirthTimes(std::map<CKeyID, int64_t> &mapKeyBirth) const;
 
-    CWalletTx* GetWalletTx(const uint256& txid) const;
 
     /** Increment the next transaction order id
         @return next transaction order id
@@ -193,8 +192,8 @@ public:
     int64_t GetImmatureBalance() const;
     int64_t GetStake() const;
     int64_t GetNewMint() const;
-    bool CreateTransaction(const std::vector<std::pair<CScript, int64_t> >& vecSend, CWalletTx& wtxNew, CReserveKey& reservekey, int64_t& nFeeRet, const CCoinControl *coinControl=NULL, uint32_t nLockTime = 0);
-    bool CreateTransaction(CScript scriptPubKey, int64_t nValue, CWalletTx& wtxNew, CReserveKey& reservekey, int64_t& nFeeRet, const CCoinControl *coinControl=NULL, uint32_t nLockTime = 0);
+    bool CreateTransaction(const std::vector<std::pair<CScript, int64_t> >& vecSend, CWalletTx& wtxNew, CReserveKey& reservekey, int64_t& nFeeRet, const CCoinControl *coinControl=NULL);
+    bool CreateTransaction(CScript scriptPubKey, int64_t nValue, CWalletTx& wtxNew, CReserveKey& reservekey, int64_t& nFeeRet, const CCoinControl *coinControl=NULL);
     bool CommitTransaction(CWalletTx& wtxNew, CReserveKey& reservekey);
 
     bool GetStakeWeight(const CKeyStore& keystore, uint64_t& nMinWeight, uint64_t& nMaxWeight, uint64_t& nWeight);
@@ -323,14 +322,6 @@ public:
     void FixSpentCoins(int& nMismatchSpent, int64_t& nBalanceInQuestion, bool fCheckOnly = false);
     void DisableTransaction(const CTransaction &tx);
 
-    bool FlushWallet();
-    bool IsTimelockSatisfied(const CWalletTx& wtx) const;
-
-    void ScheduleDeferredBroadcast(const CWalletTx& wtx);
-    void ProcessDeferredBroadcasts();
-    void StopDeferredBroadcast();
-    void Shutdown();
-
     /** Address book entry changed.
      * @note called with lock cs_wallet held.
      */
@@ -420,8 +411,6 @@ public:
     mutable int64_t nAvailableCreditCached;
     mutable int64_t nChangeCached;
 
-    bool fAbandoned;
-
     CWalletTx()
     {
         Init(NULL);
@@ -463,7 +452,6 @@ public:
         nAvailableCreditCached = 0;
         nChangeCached = 0;
         nOrderPos = -1;
-        fAbandoned = false;
     }
 
     IMPLEMENT_SERIALIZE
@@ -589,20 +577,6 @@ public:
         if (nOut >= vfSpent.size())
             return false;
         return (!!vfSpent[nOut]);
-    }
-
-    void MarkAbandoned() {
-        fAbandoned = true;
-        MarkDirty();
-    }
-
-    bool IsAbandoned() const {
-        return fAbandoned;
-    }
-
-    bool IsConfirmed() const {
-        int nDepth = GetDepthInMainChain();  // Assuming this method exists in CMerkleTx
-        return nDepth >= 1;  // or any threshold for confirmation
     }
 
     int64_t GetDebit() const

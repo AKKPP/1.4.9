@@ -4,7 +4,6 @@
 #include <QObject>
 #include <vector>
 #include <map>
-#include <set>
 
 #include "allocators.h" /* for SecureString */
 
@@ -89,7 +88,7 @@ public:
     };
 
     // Send coins to a list of recipients
-    SendCoinsReturn sendCoins(const QList<SendCoinsRecipient> &recipients, const CCoinControl *coinControl=NULL, uint32_t nLockTime = 0);
+    SendCoinsReturn sendCoins(const QList<SendCoinsRecipient> &recipients, const CCoinControl *coinControl=NULL);
 
     // Wallet encryption
     bool setWalletEncrypted(bool encrypted, const SecureString &passphrase);
@@ -128,12 +127,9 @@ public:
     void lockCoin(COutPoint& output);
     void unlockCoin(COutPoint& output);
     void listLockedCoins(std::vector<COutPoint>& vOutpts);
-    bool abandonTransaction(const uint256& txid);
 
 private:
     CWallet *wallet;
-
-    std::set<COutPoint> setLockedCoins;
 
     // Wallet has an options model for wallet-specific options
     // (transaction fee, for example)

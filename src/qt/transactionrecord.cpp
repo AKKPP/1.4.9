@@ -218,10 +218,7 @@ void TransactionRecord::updateStatus(const CWalletTx &wtx)
     {
         if (status.depth < 0)
         {
-            if (wtx.nLockTime > 0)
-                status.status = TransactionStatus::Unconfirmed;
-            else
-                status.status = TransactionStatus::Conflicted;
+            status.status = TransactionStatus::Conflicted;
         }
         else if (GetAdjustedTime() - wtx.nTimeReceived > 2 * 60 && wtx.GetRequestCount() == 0)
         {

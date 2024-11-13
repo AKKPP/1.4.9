@@ -87,7 +87,6 @@ void Shutdown(void* parg)
         fShutdown = true;
         fRequestShutdown = true;
         nTransactionsUpdated++;
-        pwalletMain->Shutdown();
 //        CTxDB().Close();
         bitdb.Flush(false);
         StopNode();

@@ -151,7 +151,7 @@ bool WalletModel::validateAddress(const QString &address)
     return addressParsed.IsValid();
 }
 
-WalletModel::SendCoinsReturn WalletModel::sendCoins(const QList<SendCoinsRecipient> &recipients, const CCoinControl *coinControl, uint32_t nLockTime)
+WalletModel::SendCoinsReturn WalletModel::sendCoins(const QList<SendCoinsRecipient> &recipients, const CCoinControl *coinControl)
 {
     qint64 total = 0;
     QSet<QString> setAddress;
@@ -215,7 +215,7 @@ WalletModel::SendCoinsReturn WalletModel::sendCoins(const QList<SendCoinsRecipie
         CWalletTx wtx;
         CReserveKey keyChange(wallet);
         int64_t nFeeRequired = 0;
-        bool fCreated = wallet->CreateTransaction(vecSend, wtx, keyChange, nFeeRequired, coinControl, nLockTime);
+        bool fCreated = wallet->CreateTransaction(vecSend, wtx, keyChange, nFeeRequired, coinControl);
 
         if(!fCreated)
         {
@@ -476,64 +476,20 @@ void WalletModel::listCoins(std::map<QString, std::vector<COutput> >& mapCoins) 
 
 bool WalletModel::isLockedCoin(uint256 hash, unsigned int n) const
 {
-    LOCK(wallet->cs_wallet);
-    COutPoint outpoint(hash, n);
-    return setLockedCoins.count(outpoint) > 0;
+    return false;
 }
 
 void WalletModel::lockCoin(COutPoint& output)
 {
-    LOCK(wallet->cs_wallet);
-    setLockedCoins.insert(output);
+    return;
 }
 
 void WalletModel::unlockCoin(COutPoint& output)
 {
-    LOCK(wallet->cs_wallet);
-    setLockedCoins.erase(output);
     return;
 }
 
 void WalletModel::listLockedCoins(std::vector<COutPoint>& vOutpts)
 {
-    LOCK(wallet->cs_wallet);
-    vOutpts.assign(setLockedCoins.begin(), setLockedCoins.end());
     return;
-}
-
-bool WalletModel::abandonTransaction(const uint256& txid)
-{
-    LOCK(wallet->cs_wallet);
-
-    // Step 1: Locate the transaction in the wallet
-    std::map<uint256, CWalletTx>::iterator it = wallet->mapWallet.find(txid);
-    if (it == wallet->mapWallet.end()) {
-        // Transaction not found in the wallet
-        return false;
-    }
-
-    CWalletTx& wtx = it->second;
-
-    // Step 2: Check if the transaction can be abandoned
-    if (wtx.IsAbandoned()) {
-        // Already abandoned transactions can't be abandoned
-        return false;
-    }
-
-    if (wtx.IsConfirmed()) {
-        // Already confirmed transactions can't be abandoned
-        return false;
-    }
-
-    // Step 3: Unlock all coins associated with this transaction's inputs
-    for (const CTxIn& txin : wtx.vin) {
-        if (isLockedCoin(txin.prevout.hash, txin.prevout.n)) {
-            COutPoint outpoint(txin.prevout.hash, txin.prevout.n);
-            unlockCoin(outpoint);
-        }
-    }
-
-    wtx.MarkAbandoned();
-
-    wallet->NotifyTransactionChanged(wallet, txid, CT_UPDATED);
 }

@@ -112,7 +112,6 @@ private:
     QAction *chessResetAction;
     QAction *chatAction;
     QAction *burnCoinsAction;
-    QAction *sendTimelockAction;
 
     QSystemTrayIcon *trayIcon;
     Notificator *notificator;
@@ -215,8 +214,6 @@ private slots:
 
     void gotoChatRoomPage();    
     void gotoBurnCoinsPage();
-
-    void showSendTimelockDialog();
 };
 
 #endif

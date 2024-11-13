@@ -12,9 +12,6 @@
 #include "ui_interface.h"
 #include "qtipcserver.h"
 #include "intro.h"
-#ifdef SHOWEXITWAIT
-#include "exitwaitdialog.h"
-#endif
 
 #include <QApplication>
 #include <QMessageBox>
@@ -30,7 +27,6 @@
 #include <QFileInfo>
 #include <QDir>
 #include <QTextStream>
-#include <QWindow>
 
 #if (defined (LINUX) || defined (_linux_))
 #include <boost/filesystem.hpp>
@@ -260,15 +256,6 @@ int main(int argc, char *argv[])
 
         BitcoinGUI window;
         guiref = &window;
-
-#ifdef SHOWEXITWAIT
-        ExitWaitDialog* exitwaitdlg = new ExitWaitDialog(&window);
-        exitwaitdlg->setWindowModality(Qt::NonModal);
-        exitwaitdlg->setAttribute(Qt::WA_DeleteOnClose);
-        exitwaitdlg->setWindowOpacity(0.0);
-        exitwaitdlg->show();
-#endif
-
         if(AppInit2())
         {
             {
@@ -304,12 +291,6 @@ int main(int argc, char *argv[])
                 window.setWalletModel(nullptr);
                 guiref = nullptr;
             }
-
-#ifdef SHOWEXITWAIT
-            exitwaitdlg->setWindowOpacity(1.0);
-            exitwaitdlg->show();
-#endif
-
             // Shutdown the core and its threads, but don't exit Bitcoin-Qt here
             Shutdown(nullptr);
         }

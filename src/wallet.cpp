@@ -12,23 +12,11 @@
 #include "kernel.h"
 #include "coincontrol.h"
 #include <boost/algorithm/string/replace.hpp>
-#include <mutex>
-#include <thread>
 
 using namespace std;
 
 unsigned int nStakeSplitAge = 1 * 24 * 60 * 60;
 int64_t nStakeCombineThreshold = 1000 * COIN;
-
-
-//////////////////////////////////////////////////////////////////////////////
-//
-// Timelock Checking Thread
-// Deferred transactions map
-map<uint256, CWalletTx> deferredTransactions;
-std::mutex deferredMutex;
-std::thread deferredBroadcastThread;
-atomic<bool> stopDeferredBroadcast{false};
 
 //////////////////////////////////////////////////////////////////////////////
 //
@@ -1389,7 +1377,7 @@ bool CWallet::SelectCoinsForStaking(int64_t nTargetValue, unsigned int nSpendTim
     return true;
 }
 
-bool CWallet::CreateTransaction(const vector<pair<CScript, int64_t> >& vecSend, CWalletTx& wtxNew, CReserveKey& reservekey, int64_t& nFeeRet, const CCoinControl* coinControl, uint32_t nLockTime)
+bool CWallet::CreateTransaction(const vector<pair<CScript, int64_t> >& vecSend, CWalletTx& wtxNew, CReserveKey& reservekey, int64_t& nFeeRet, const CCoinControl* coinControl)
 {
     int64_t nValue = 0;
     BOOST_FOREACH (const PAIRTYPE(CScript, int64_t)& s, vecSend)
@@ -1414,9 +1402,6 @@ bool CWallet::CreateTransaction(const vector<pair<CScript, int64_t> >& vecSend, 
                 wtxNew.vin.clear();
                 wtxNew.vout.clear();
                 wtxNew.fFromMe = true;
-
-                // Set the locktime before adding supporting transactions and signing
-                wtxNew.nLockTime = nLockTime;
 
                 int64_t nTotalValue = nValue + nFeeRet;
                 double dPriority = 0;
@@ -1484,10 +1469,7 @@ bool CWallet::CreateTransaction(const vector<pair<CScript, int64_t> >& vecSend, 
 
                 // Fill vin
                 BOOST_FOREACH(const PAIRTYPE(const CWalletTx*,unsigned int)& coin, setCoins)
-                {
-                    uint32_t sequence = (nLockTime > 0) ? 0xFFFFFFFE : SEQUENCE_FINAL;
-                    wtxNew.vin.push_back(CTxIn(coin.first->GetHash(), coin.second, CScript(), sequence));
-                }
+                    wtxNew.vin.push_back(CTxIn(coin.first->GetHash(),coin.second));
 
                 // Sign
                 int nIn = 0;
@@ -1522,11 +1504,11 @@ bool CWallet::CreateTransaction(const vector<pair<CScript, int64_t> >& vecSend, 
     return true;
 }
 
-bool CWallet::CreateTransaction(CScript scriptPubKey, int64_t nValue, CWalletTx& wtxNew, CReserveKey& reservekey, int64_t& nFeeRet, const CCoinControl* coinControl, uint32_t nLockTime)
+bool CWallet::CreateTransaction(CScript scriptPubKey, int64_t nValue, CWalletTx& wtxNew, CReserveKey& reservekey, int64_t& nFeeRet, const CCoinControl* coinControl)
 {
     vector< pair<CScript, int64_t> > vecSend;
     vecSend.push_back(make_pair(scriptPubKey, nValue));
-    return CreateTransaction(vecSend, wtxNew, reservekey, nFeeRet, coinControl, nLockTime);
+    return CreateTransaction(vecSend, wtxNew, reservekey, nFeeRet, coinControl);
 }
 
 // NovaCoin: get current stake weight
@@ -1796,183 +1778,58 @@ bool CWallet::CreateCoinStake(const CKeyStore& keystore, unsigned int nBits, int
     return true;
 }
 
-void CWallet::StopDeferredBroadcast()
-{
-    stopDeferredBroadcast = true;
-    if (deferredBroadcastThread.joinable()) {
-        deferredBroadcastThread.join();
-    }
-}
-
-void CWallet::ProcessDeferredBroadcasts()
-{
-    while (!stopDeferredBroadcast && !fShutdown)
-    {
-        {
-            std::lock_guard<std::mutex> lock(deferredMutex);
-            for (auto it = deferredTransactions.begin(); it != deferredTransactions.end(); ) {
-                CWalletTx& wtx = it->second;
-
-                // Check if the timelock is satisfied
-                if (IsTimelockSatisfied(wtx)) {
-                    // Broadcast the transaction
-                    if (wtx.AcceptToMemoryPool()) {
-                        wtx.RelayWalletTransaction();
-                        printf("Deferred broadcast: Transaction %s has been broadcast.\n", wtx.GetHash().ToString().c_str());
-                    } else {
-                        printf("Deferred broadcast: Error accepting transaction %s to memory pool.\n", wtx.GetHash().ToString().c_str());
-                    }
-                    // Erase the transaction from the map after broadcasting
-                    it = deferredTransactions.erase(it);
-                } else {
-                    ++it;
-                }
-            }
-        }
-
-        // Sleep for a short interval before checking again
-        //std::this_thread::sleep_for(std::chrono::seconds(3));
-        for (int i = 0; i < 15; ++i) {
-            std::this_thread::sleep_for(std::chrono::seconds(2));
-            if (!stopDeferredBroadcast || !fShutdown)
-                return;
-        }
-    }
-}
-
-void CWallet::ScheduleDeferredBroadcast(const CWalletTx& wtx)
-{
-    std::lock_guard<std::mutex> lock(deferredMutex);
-    deferredTransactions[wtx.GetHash()] = wtx;
-
-    // Start the broadcast thread if it's not already running
-    if (!deferredBroadcastThread.joinable()) {
-        deferredBroadcastThread = std::thread(&CWallet::ProcessDeferredBroadcasts, this);
-    }
-}
-
-bool CWallet::IsTimelockSatisfied(const CWalletTx& wtx) const
-{
-    // Get the lock time from the transaction
-    uint32_t nLockTime = wtx.nLockTime;
-    if (nLockTime == 0)
-        return true;
-
-    if (nLockTime < LOCKTIME_THRESHOLD) {
-        // nLockTime is interpreted as a block height
-        return ((uint32_t)nBestHeight >= nLockTime);
-    } else {
-        // nLockTime is interpreted as a Unix timestamp
-        uint32_t currentTime = GetAdjustedTime();
-        return currentTime >= nLockTime;
-    }
-}
-
-bool CWallet::FlushWallet()
-{
-    printf("Flushing wallet.dat to disk...\n");
-
-    // Lock wallet during flush to prevent other operations
-    LOCK(cs_wallet);
-
-    // Open wallet database in write mode to flush changes
-    CWalletDB walletdb(strWalletFile, "r+");
-
-    if (!walletdb.TxnBegin()) {
-        printf("FlushWallet() : Error: Unable to begin transaction.\n");
-        return false;
-    }
-
-    // Write all wallet transactions to disk
-    for (auto& walletEntry : mapWallet) {
-        CWalletTx& wtx = walletEntry.second;
-        if (!wtx.WriteToDisk()) {
-            printf("FlushWallet() : Error writing transaction to disk.\n");
-            walletdb.TxnAbort();
-            return false;
-        }
-    }
-
-    // Commit the transaction to finalize writes
-    if (!walletdb.TxnCommit()) {
-        printf("FlushWallet() : Error: Unable to commit transaction.\n");
-        return false;
-    }
-
-    printf("FlushWallet() : Wallet flushed successfully.\n");
-    return true;
-}
-
 
 // Call after CreateTransaction unless you want to abort
 bool CWallet::CommitTransaction(CWalletTx& wtxNew, CReserveKey& reservekey)
 {
-    LOCK2(cs_main, cs_wallet);
-
     {
-        // This is only to keep the database open to defeat the auto-flush for the
-        // duration of this scope.  This is the only place where this optimization
-        // maybe makes sense; please don't do it anywhere else.
-        //CWalletDB* pwalletdb = fFileBacked ? new CWalletDB(strWalletFile,"r") : NULL;
-
-        // Take key pair from key pool so it won't be used again
-        reservekey.KeepKey();
-
-        // Add tx to wallet, because if it has change it's also ours,
-        // otherwise just for transaction history.
-        AddToWallet(wtxNew);
-
-        // Mark old coins as spent
-        set<CWalletTx*> setCoins;
-        BOOST_FOREACH(const CTxIn& txin, wtxNew.vin)
+        LOCK2(cs_main, cs_wallet);
+        printf("CommitTransaction:\n%s", wtxNew.ToString().c_str());
         {
-            CWalletTx &coin = mapWallet[txin.prevout.hash];
-            coin.BindWallet(this);
-            coin.MarkSpent(txin.prevout.n);
+            // This is only to keep the database open to defeat the auto-flush for the
+            // duration of this scope.  This is the only place where this optimization
+            // maybe makes sense; please don't do it anywhere else.
+            CWalletDB* pwalletdb = fFileBacked ? new CWalletDB(strWalletFile,"r") : NULL;
 
-            // Write updated transaction to disk immediately
-            coin.WriteToDisk();
-            NotifyTransactionChanged(this, coin.GetHash(), CT_UPDATED);
+            // Take key pair from key pool so it won't be used again
+            reservekey.KeepKey();
+
+            // Add tx to wallet, because if it has change it's also ours,
+            // otherwise just for transaction history.
+            AddToWallet(wtxNew);
+
+            // Mark old coins as spent
+            set<CWalletTx*> setCoins;
+            BOOST_FOREACH(const CTxIn& txin, wtxNew.vin)
+            {
+                CWalletTx &coin = mapWallet[txin.prevout.hash];
+                coin.BindWallet(this);
+                coin.MarkSpent(txin.prevout.n);
+                coin.WriteToDisk();
+                NotifyTransactionChanged(this, coin.GetHash(), CT_UPDATED);
+            }
+
+            if (fFileBacked)
+                delete pwalletdb;
         }
-
-//        // Cleanup pwalletdb if file-backed
-//        if (fFileBacked)
-//            delete pwalletdb;
 
         // Track how many getdata requests our transaction gets
         mapRequestCount[wtxNew.GetHash()] = 0;
 
-        // Broadcast transaction if timelock allows
-        if (IsTimelockSatisfied(wtxNew))
+        // Broadcast
+        if (!wtxNew.AcceptToMemoryPool())
         {
-            // Open the wallet database in read-write mode if the wallet is file-backed
-            CWalletDB* pwalletdb = fFileBacked ? new CWalletDB(strWalletFile, "r+") : NULL;
-
-            // Write the new transaction to disk now that timelock is passed
-            if (fFileBacked && !wtxNew.WriteToDisk()) {
-                printf("CommitTransaction() : Error: Unable to write transaction to disk\n");
-                if (pwalletdb) delete pwalletdb;
-                return false;
-            }
-
-            // Cleanup pwalletdb if file-backed
-            if (fFileBacked) delete pwalletdb;
-
-            // Broadcast the transaction
-            if (!wtxNew.AcceptToMemoryPool()) {
-                printf("CommitTransaction() : Error: Transaction not valid\n");
-                return false;
-            }
-            wtxNew.RelayWalletTransaction();
+            // This must not fail. The transaction has already been signed and recorded.
+            printf("CommitTransaction() : Error: Transaction not valid\n");
+            return false;
         }
-        else
-        {
-            // Schedule deferred broadcast or notify for delayed action
-            ScheduleDeferredBroadcast(wtxNew);
-        }
+        wtxNew.RelayWalletTransaction();
     }
     return true;
 }
+
+
+
 
 string CWallet::SendMoney(CScript scriptPubKey, int64_t nValue, CWalletTx& wtxNew, bool fAskFee)
 {
@@ -2616,32 +2473,4 @@ void CWallet::GetKeyBirthTimes(std::map<CKeyID, int64_t> &mapKeyBirth) const {
     // Extract block timestamps for those keys
     for (std::map<CKeyID, CBlockIndex*>::const_iterator it = mapKeyFirstBlock.begin(); it != mapKeyFirstBlock.end(); it++)
         mapKeyBirth[it->first] = it->second->nTime - 7200; // block times can be 2h off
-}
-
-CWalletTx* CWallet::GetWalletTx(const uint256& txid) const
-{
-    // Check if the txid exists in the wallet's mapWallet
-    std::map<uint256, CWalletTx>::const_iterator it = mapWallet.find(txid);
-
-    if (it != mapWallet.end()) {
-        // Return a pointer to the transaction if found
-        return const_cast<CWalletTx*>(&it->second);
-    }
-
-    // Return null if the transaction is not found
-    return nullptr;
-}
-
-void CWallet::Shutdown()
-{
-    printf("Shutting down wallet...\n");
-
-    // Stop the deferred broadcast thread
-    StopDeferredBroadcast();
-
-    // 20241104 Commented due to stuck
-    // it was added for timelock
-    //FlushWallet();
-
-    printf("Wallet shutdown complete.\n");
 }

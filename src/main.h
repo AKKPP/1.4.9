@@ -776,12 +776,11 @@ public:
         @param[in] pindexBlock
         @param[in] fBlock	true if called from ConnectBlock
         @param[in] fMiner	true if called from CreateNewBlock
-        @param[in] flags	STRICT_FLAGS script validation flags
         @return Returns true if all checks succeed
      */
     bool ConnectInputs(CTxDB& txdb, MapPrevTx inputs,
                        std::map<uint256, CTxIndex>& mapTestPool, const CDiskTxPos& posThisTx,
-                       const CBlockIndex* pindexBlock, bool fBlock, bool fMiner, unsigned int flags);
+                       const CBlockIndex* pindexBlock, bool fBlock, bool fMiner);
     bool CheckTransaction() const;
     bool GetCoinAge(CTxDB& txdb, uint64_t& nCoinAge) const;  // ppcoin: get transaction coin age
 
